@@ -318,7 +318,7 @@ namespace CsvHelper.Tests
 			var config = new CsvHelper.Configuration.CsvConfiguration(CultureInfo.InvariantCulture)
 			{
 				Delimiter = "|~|",
-				BufferSize = 16,
+				BufferSize = 16
 			};
 
 			using (var stream = new MemoryStream())
@@ -327,6 +327,39 @@ namespace CsvHelper.Tests
 			using (var parser = new CsvParser(reader, config))
 			{
 				writer.WriteLine("12340000004321|~|2");
+				writer.Flush();
+				stream.Position = 0;
+
+				var hasRecords = parser.Read();
+				Assert.True(hasRecords);
+				Assert.Equal(2, parser.Count);
+				Assert.Equal("12340000004321", parser[0]);
+				Assert.Equal("2", parser[1]);
+
+				hasRecords = parser.Read();
+				Assert.False(hasRecords);
+			}
+		}
+		
+		
+		
+		
+		[Fact]
+		public void MultipleCharDelimiterConflictingNewLineWithBufferEndingInMiddleOfDelimiterTest()
+		{
+			var config = new CsvHelper.Configuration.CsvConfiguration(CultureInfo.InvariantCulture)
+			{
+				Delimiter = "|~|",
+				BufferSize = 16,
+				NewLine = "|*|\r\n"
+			};
+
+			using (var stream = new MemoryStream())
+			using (var reader = new StreamReader(stream))
+			using (var writer = new StreamWriter(stream))
+			using (var parser = new CsvParser(reader, config))
+			{
+				writer.WriteLine("12340000004321|~|2|*|");
 				writer.Flush();
 				stream.Position = 0;
 

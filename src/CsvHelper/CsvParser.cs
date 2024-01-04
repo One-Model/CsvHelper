@@ -45,7 +45,9 @@ namespace CsvHelper
 		private readonly string[] delimiterValues;
 		private readonly bool detectDelimiter;
 		private readonly double maxFieldSize;
-
+		private readonly int peekLength;
+		private readonly bool conflictingDelimiter;
+		
 		private string delimiter;
 		private char delimiterFirstChar;
 		private char[] buffer;
@@ -209,6 +211,8 @@ namespace CsvHelper
 			processFieldBuffer = new char[processFieldBufferSize];
 			fields = new Field[128];
 			processedFields = new string[128];
+			peekLength = Math.Max(delimiter.Length, newLine.Length);
+			conflictingDelimiter = delimiter[0] == newLine[0];
 		}
 
 		/// <inheritdoc/>
@@ -356,7 +360,7 @@ namespace CsvHelper
 				}
 
 				var isFirstCharOfRow = rowStartPosition == bufferPosition - 1;
-				if (isFirstCharOfRow && (allowComments && c == comment || ignoreBlankLines && ((c == '\r' || c == '\n') && !isNewLineSet || c == newLineFirstChar && isNewLineSet)))
+				if (isFirstCharOfRow && (allowComments && c == comment || ignoreBlankLines && ((c == '\r' || c == '\n') && !isNewLineSet || isNewLineSet && PeekCheck(c) == ParserState.NewLine)))
 				{
 					state = ParserState.BlankLine;
 					var result = ReadBlankLine(ref c);
@@ -448,7 +452,7 @@ namespace CsvHelper
 					}
 				}
 
-				if (c == delimiterFirstChar)
+				if (c == delimiterFirstChar && !conflictingDelimiter)
 				{
 					state = ParserState.Delimiter;
 					var result = ReadDelimiter(ref c);
@@ -460,6 +464,36 @@ namespace CsvHelper
 					state = ParserState.None;
 
 					continue;
+				}
+
+				if (c == delimiterFirstChar && conflictingDelimiter)
+				{
+					var peekResult = PeekCheck(c);
+					switch (peekResult)
+					{
+						case ParserState.Delimiter:
+							state = ParserState.Delimiter;
+							var delimiterResult = ReadDelimiter(ref c);
+							if (delimiterResult == ReadLineResult.Incomplete)
+							{
+								return delimiterResult;
+							}
+
+							state = ParserState.None;
+							continue;
+						case ParserState.NewLine:
+							state = ParserState.NewLine;
+							var result = ReadNewLine(ref c);
+							if (result == ReadLineResult.Complete)
+							{
+								state = ParserState.None;
+							}
+							return result;
+						case ParserState.None:
+							continue;
+						default:
+							throw new ArgumentOutOfRangeException();
+					}
 				}
 
 				if (!isNewLineSet && (c == '\r' || c == '\n'))
@@ -723,18 +757,19 @@ namespace CsvHelper
 			quoteCount = 0;
 		}
 
-		private bool FillBuffer()
+		private bool FillBuffer(bool peekBuffer = false)
 		{
 			// Don't forget the async method below.
 
-			if (rowStartPosition == 0 && charCount > 0 && charsRead == bufferSize)
+			if ((rowStartPosition == 0 && charCount > 0 && charsRead == bufferSize) || peekBuffer)
 			{
-				// The record is longer than the memory buffer. Increase the buffer.
-				bufferSize *= 2;
+
+				bufferSize = Math.Max(bufferSize + peekLength, bufferSize * 2);
 				var tempBuffer = new char[bufferSize];
 				buffer.CopyTo(tempBuffer, 0);
 				buffer = tempBuffer;
 			}
+			
 
 			var charsLeft = Math.Max(charsRead - rowStartPosition, 0);
 
@@ -742,8 +777,7 @@ namespace CsvHelper
 
 			fieldStartPosition -= rowStartPosition;
 			rowStartPosition = 0;
-			bufferPosition = charsLeft;
-
+			bufferPosition = peekBuffer ? charsLeft - peekLength + 1 : charsLeft;
 			charsRead = reader.Read(buffer, charsLeft, buffer.Length - charsLeft);
 			if (charsRead == 0)
 			{
@@ -1118,6 +1152,53 @@ namespace CsvHelper
 			// Set large fields to null
 
 			disposed = true;
+		}
+
+		private ParserState PeekCheck(char c)
+		{
+			if (c != delimiterFirstChar && c != newLineFirstChar)
+			{
+				return ParserState.None;
+			}
+			
+			var canBeNewLine = true;
+			var canBeDelimiter = true;
+			if (bufferPosition + peekLength > bufferSize)
+			{
+				FillBuffer(true);
+			}
+			
+			for (int i = 1; i < peekLength; i++)
+			{
+				var nextChar = buffer[bufferPosition + i - 1];
+				if (newLine.Length > i && newLine[i] != nextChar)
+				{
+					canBeNewLine = false;
+				}
+
+				if (delimiter.Length > i && delimiter[i] != nextChar)
+				{
+					canBeDelimiter = false;
+				}
+
+				if (!canBeDelimiter && !canBeNewLine)
+				{
+					return ParserState.None;
+				}
+
+				// can exit early once we have read enough to confirm if it is 
+				if (!canBeNewLine && i >= delimiter.Length)
+				{
+					return ParserState.Delimiter;
+				}
+				
+				if (!canBeDelimiter && i >= newLine.Length)
+				{
+					return ParserState.NewLine;
+				}
+			}
+			
+			return canBeDelimiter ? ParserState.Delimiter : ParserState.NewLine;
 		}
 
 		/// <summary>
