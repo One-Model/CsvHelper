@@ -1223,19 +1223,9 @@ namespace CsvHelper
 				return ParserState.None;
 			}
 
-			// think about it yo
-			if (c == newLineFirstChar && newLine.Length == 1)
-			{
-				return ParserState.NewLine;
-			}
-
-			if (c == delimiterFirstChar && delimiter.Length == 1)
-			{
-				return ParserState.Delimiter;
-			}
-			
 			var canBeNewLine = c == newLineFirstChar;
 			var canBeDelimiter = c == delimiterFirstChar;
+			
 			if (bufferPosition + peekLength > bufferSize)
 			{
 				FillBufferForPeek();
@@ -1257,17 +1247,6 @@ namespace CsvHelper
 				if (!canBeDelimiter && !canBeNewLine)
 				{
 					return ParserState.None;
-				}
-
-				// can exit early once we have read enough to confirm if it is 
-				if (!canBeNewLine && i >= delimiter.Length)
-				{
-					return ParserState.Delimiter;
-				}
-				
-				if (!canBeDelimiter && i >= newLine.Length)
-				{
-					return ParserState.NewLine;
 				}
 			}
 			
