@@ -226,8 +226,6 @@ namespace CsvHelper
 			quoteCount = 0;
 			row++;
 			rawRow++;
-			var c = '\0';
-			var cPrev = c;
 
 			while (true)
 			{
@@ -244,7 +242,7 @@ namespace CsvHelper
 					}
 				}
 
-				if (ReadLine(ref c, ref cPrev) == ReadLineResult.Complete)
+				if (ReadLine() == ReadLineResult.Complete)
 				{
 					return true;
 				}
@@ -261,9 +259,7 @@ namespace CsvHelper
 			quoteCount = 0;
 			row++;
 			rawRow++;
-			var c = '\0';
-			var cPrev = c;
-
+			
 			while (true)
 			{
 				if (bufferPosition >= charsRead)
@@ -279,7 +275,7 @@ namespace CsvHelper
 					}
 				}
 
-				if (ReadLine(ref c, ref cPrev) == ReadLineResult.Complete)
+				if (await ReadLineAsync() == ReadLineResult.Complete)
 				{
 					return true;
 				}
@@ -298,8 +294,9 @@ namespace CsvHelper
 			}
 		}
 
-		private ReadLineResult ReadLine(ref char c, ref char cPrev)
+		private ReadLineResult ReadLine()
 		{
+			var c = buffer[Math.Max(0,bufferPosition - 1)];
 			while (bufferPosition < charsRead)
 			{
 				if (state != ParserState.None)
@@ -345,7 +342,7 @@ namespace CsvHelper
 					}
 				}
 
-				cPrev = c;
+				var cPrev = c;
 				c = buffer[bufferPosition];
 				bufferPosition++;
 				charCount++;
@@ -508,8 +505,9 @@ namespace CsvHelper
 			return ReadLineResult.Incomplete;
 		}
 		
-		private async Task<ReadLineResult> ReadLineAsync(char c, char cPrev)
+		private async Task<ReadLineResult> ReadLineAsync()
 		{
+			var c = buffer[Math.Max(0,bufferPosition - 1)];
 			while (bufferPosition < charsRead)
 			{
 				if (state != ParserState.None)
@@ -555,7 +553,7 @@ namespace CsvHelper
 					}
 				}
 
-				cPrev = c;
+				var cPrev = c;
 				c = buffer[bufferPosition];
 				bufferPosition++;
 				charCount++;

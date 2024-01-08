@@ -819,7 +819,7 @@ namespace CsvHelper.Tests
 			using (var reader = new StreamReader(stream))
 			using (var parser = new CsvParser(reader, config))
 			{
-				writer.Write("|1,a|##|\r\n");
+				writer.Write("|##|,a|##|\r\n");
 				writer.Write("|##|\r\n");
 				writer.WriteLine("3|,c|##|\r\n");
 				writer.Flush();
@@ -827,7 +827,7 @@ namespace CsvHelper.Tests
 
 				Assert.True(parser.Read());
 				Assert.Equal(1, parser.Row);
-				Assert.Equal("|1", parser[0]);
+				Assert.Equal("|##|", parser[0]);
 
 				Assert.True(parser.Read());
 				Assert.Equal(3, parser.Row);
