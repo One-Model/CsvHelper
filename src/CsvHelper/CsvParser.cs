@@ -361,7 +361,7 @@ namespace CsvHelper
 				}
 
 				var isFirstCharOfRow = rowStartPosition == bufferPosition - 1;
-				if (isFirstCharOfRow && (allowComments && c == comment || ignoreBlankLines && ((c == '\r' || c == '\n') && !isNewLineSet || isNewLineSet && PeekCheck(c) == ParserState.NewLine)))
+				if (isFirstCharOfRow && (allowComments && c == comment || ignoreBlankLines && ((c == '\r' || c == '\n') && !isNewLineSet || isNewLineSet & c == newLineFirstChar && PeekAndCheck(c) == ParserState.NewLine)))
 				{
 					state = ParserState.BlankLine;
 					var result = ReadBlankLine(ref c);
@@ -371,10 +371,7 @@ namespace CsvHelper
 
 						continue;
 					}
-					else
-					{
-						return ReadLineResult.Incomplete;
-					}
+					return ReadLineResult.Incomplete;
 				}
 
 				if (mode == CsvMode.RFC4180)
@@ -455,7 +452,7 @@ namespace CsvHelper
 				
 				if (shouldPeek && (c == delimiterFirstChar || (c == newLineFirstChar && isNewLineSet)))
 				{
-					var peekResult = PeekCheck(c);
+					var peekResult = PeekAndCheck(c);
 					switch (peekResult)
 					{
 						case ParserState.Delimiter:
@@ -468,13 +465,7 @@ namespace CsvHelper
 							state = ParserState.None;
 							continue;
 						case ParserState.NewLine:
-							state = ParserState.NewLine;
-							var result = ReadNewLine(ref c);
-							if (result == ReadLineResult.Complete)
-							{
-								state = ParserState.None;
-							}
-							return result;
+							return HandleNewLine(ref c);
 						case ParserState.None:
 							continue;
 						default:
@@ -510,8 +501,206 @@ namespace CsvHelper
 
 				if (isNewLineSet && c == newLineFirstChar)
 				{
-					state = ParserState.NewLine;
-					var result = ReadNewLine(ref c);
+					return HandleNewLine(ref c);
+				}
+			}
+
+			return ReadLineResult.Incomplete;
+		}
+		
+		private async Task<ReadLineResult> ReadLineAsync(char c, char cPrev)
+		{
+			while (bufferPosition < charsRead)
+			{
+				if (state != ParserState.None)
+				{
+					// Continue the state before doing anything else.
+					ReadLineResult result;
+					switch (state)
+					{
+						case ParserState.Spaces:
+							result = ReadSpaces(ref c);
+							break;
+						case ParserState.BlankLine:
+							result = ReadBlankLine(ref c);
+							break;
+						case ParserState.Delimiter:
+							result = ReadDelimiter(ref c);
+							break;
+						case ParserState.LineEnding:
+							result = ReadLineEnding(ref c);
+							break;
+						case ParserState.NewLine:
+							result = ReadNewLine(ref c);
+							break;
+						default:
+							throw new InvalidOperationException($"Parser state '{state}' is not valid.");
+					}
+
+					var shouldReturn =
+						// Buffer needs to be filled.
+						result == ReadLineResult.Incomplete ||
+						// Done reading row.
+						result == ReadLineResult.Complete && (state == ParserState.LineEnding || state == ParserState.NewLine)
+					;
+
+					if (result == ReadLineResult.Complete)
+					{
+						state = ParserState.None;
+					}
+
+					if (shouldReturn)
+					{
+						return result;
+					}
+				}
+
+				cPrev = c;
+				c = buffer[bufferPosition];
+				bufferPosition++;
+				charCount++;
+
+				if (countBytes)
+				{
+					byteCount += encoding.GetByteCount(new char[] { c });
+				}
+
+				if (maxFieldSize > 0 && bufferPosition - fieldStartPosition - 1 > maxFieldSize)
+				{
+					throw new MaxFieldSizeException(Context);
+				}
+
+				var isFirstCharOfRow = rowStartPosition == bufferPosition - 1;
+				if (isFirstCharOfRow && (allowComments && c == comment || ignoreBlankLines && ((c == '\r' || c == '\n') && !isNewLineSet || isNewLineSet & c == newLineFirstChar && PeekAndCheck(c) == ParserState.NewLine)))
+				{
+					state = ParserState.BlankLine;
+					var result = ReadBlankLine(ref c);
+					if (result == ReadLineResult.Complete)
+					{
+						state = ParserState.None;
+
+						continue;
+					}
+					return ReadLineResult.Incomplete;
+				}
+
+				if (mode == CsvMode.RFC4180)
+				{
+					var isFirstCharOfField = fieldStartPosition == bufferPosition - 1;
+					if (isFirstCharOfField)
+					{
+						if ((trimOptions & TrimOptions.Trim) == TrimOptions.Trim && ArrayHelper.Contains(whiteSpaceChars, c))
+						{
+							// Skip through whitespace. This is so we can process the field later.
+							var result = ReadSpaces(ref c);
+							if (result == ReadLineResult.Incomplete)
+							{
+								fieldStartPosition = bufferPosition;
+								return result;
+							}
+						}
+
+						// Fields are only quoted if the first character is a quote.
+						// If not, read until a delimiter or newline is found.
+						fieldIsQuoted = c == quote;
+					}
+
+					if (fieldIsQuoted)
+					{
+						if (c == quote || c == escape)
+						{
+							quoteCount++;
+
+							if (!inQuotes && !isFirstCharOfField && cPrev != escape)
+							{
+								fieldIsBadData = true;
+							}
+							else if (!fieldIsBadData)
+							{
+								// Don't process field quotes after bad data has been detected.
+								inQuotes = !inQuotes;
+							}
+						}
+
+						if (inQuotes)
+						{
+							if (c == '\r' || c == '\n' && cPrev != '\r')
+							{
+								rawRow++;
+							}
+
+							// We don't care about anything else if we're in quotes.
+							continue;
+						}
+					}
+					else
+					{
+						if (c == quote || c == escape)
+						{
+							// If the field isn't quoted but contains a
+							// quote or escape, it's has bad data.
+							fieldIsBadData = true;
+						}
+					}
+				}
+				else if (mode == CsvMode.Escape)
+				{
+					if (inEscape)
+					{
+						inEscape = false;
+
+						continue;
+					}
+
+					if (c == escape)
+					{
+						inEscape = true;
+
+						continue;
+					}
+				}
+				
+				if (shouldPeek && (c == delimiterFirstChar || (c == newLineFirstChar && isNewLineSet)))
+				{
+					var peekResult = await PeekAndCheckAsync(c);
+					switch (peekResult)
+					{
+						case ParserState.Delimiter:
+							state = ParserState.Delimiter;
+							var delimiterResult = ReadDelimiter(ref c);
+							if (delimiterResult == ReadLineResult.Incomplete)
+							{
+								return delimiterResult;
+							}
+							state = ParserState.None;
+							continue;
+						case ParserState.NewLine:
+							return HandleNewLine(ref c);
+						case ParserState.None:
+							continue;
+						default:
+							throw new ArgumentOutOfRangeException();
+					}
+				}
+
+				if (c == delimiterFirstChar)
+				{
+					state = ParserState.Delimiter;
+					var result = ReadDelimiter(ref c);
+					if (result == ReadLineResult.Incomplete)
+					{
+						return result;
+					}
+
+					state = ParserState.None;
+
+					continue;
+				}
+
+				if (!isNewLineSet && (c == '\r' || c == '\n'))
+				{
+					state = ParserState.LineEnding;
+					var result = ReadLineEnding(ref c);
 					if (result == ReadLineResult.Complete)
 					{
 						state = ParserState.None;
@@ -519,9 +708,26 @@ namespace CsvHelper
 
 					return result;
 				}
+
+				if (isNewLineSet && c == newLineFirstChar)
+				{
+					return HandleNewLine(ref c);
+				}
 			}
 
 			return ReadLineResult.Incomplete;
+		}
+
+		private ReadLineResult HandleNewLine(ref char c)
+		{
+			state = ParserState.NewLine;
+			var result = ReadNewLine(ref c);
+			if (result == ReadLineResult.Complete)
+			{
+				state = ParserState.None;
+			}
+
+			return result;
 		}
 
 		private ReadLineResult ReadSpaces(ref char c)
@@ -762,30 +968,15 @@ namespace CsvHelper
 			bool resizeBuffer = (rowStartPosition == 0 && charCount > 0) || bufferSize < peekLength;
 			if (resizeBuffer)
 			{
-				// There is not enough space for the full record
-				bufferSize = Math.Max(bufferSize + peekLength, bufferSize * 2);
-				var tempBuffer = new char[bufferSize];
-				buffer.CopyTo(tempBuffer, 0);
-				buffer = tempBuffer;
+				// Buffer should be at least long enough to fill entire peek
+				ResizeBuffer(Math.Max(bufferSize + peekLength, bufferSize * 2));
 			}
 
-			var charsLeft = Math.Max(charsRead - rowStartPosition, 0);
-
-			Array.Copy(buffer, rowStartPosition, buffer, 0, charsLeft);
-
-			fieldStartPosition -= rowStartPosition;
-			rowStartPosition = 0;
-			
+			var fieldEndIndex = CopyBuffer();
 			// We want the buffer position to stay in the same place relative to where it was previously
 			// as we are just filling the buffer not progressing through it.
-			bufferPosition = resizeBuffer ? bufferPosition : Math.Max(0, bufferPosition + charsLeft - charsRead);
-			charsRead = reader.Read(buffer, charsLeft, buffer.Length - charsLeft);
-			if (charsRead == 0)
-			{
-				return;
-			}
-			
-			charsRead += charsLeft;
+			bufferPosition = resizeBuffer ? bufferPosition : Math.Max(0, bufferPosition + fieldEndIndex - charsRead);
+			ReadIntoBuffer(fieldEndIndex);
 		}
 		
 		private async Task FillBufferForPeekAsync()
@@ -794,61 +985,28 @@ namespace CsvHelper
 			if (resizeBuffer)
 			{
 				// There is not enough space for the full record
-				bufferSize = Math.Max(bufferSize + peekLength, bufferSize * 2);
-				var tempBuffer = new char[bufferSize];
-				buffer.CopyTo(tempBuffer, 0);
-				buffer = tempBuffer;
+				ResizeBuffer(Math.Max(bufferSize + peekLength, bufferSize * 2));
 			}
 
-			var charsLeft = Math.Max(charsRead - rowStartPosition, 0);
-
-			Array.Copy(buffer, rowStartPosition, buffer, 0, charsLeft);
-
-			fieldStartPosition -= rowStartPosition;
-			rowStartPosition = 0;
+			var fieldEndIndex = CopyBuffer();
 			
-			// We want the buffer position to stay in the same place relative to where it was previously
-			// as we are just filling the buffer not progressing through it.
-			bufferPosition = resizeBuffer ? bufferPosition : Math.Max(0, bufferPosition + charsLeft - charsRead);
-			charsRead = await reader.ReadAsync(buffer, charsLeft, buffer.Length - charsLeft);
-			if (charsRead == 0)
-			{
-				return;
-			}
-			
-			charsRead += charsLeft;
+			bufferPosition = resizeBuffer ? bufferPosition : Math.Max(0, bufferPosition + fieldEndIndex - charsRead);
+			await ReadIntoBufferAsync(fieldEndIndex);
+
 		}
 
 		private bool FillBuffer()
 		{
 			// Don't forget the async method below.
 
-			if ((rowStartPosition == 0 && charCount > 0 && charsRead == bufferSize))
+			if (rowStartPosition == 0 && charCount > 0 && charsRead == bufferSize)
 			{
-
-				bufferSize *= 2;
-				var tempBuffer = new char[bufferSize];
-				buffer.CopyTo(tempBuffer, 0);
-				buffer = tempBuffer;
+				ResizeBuffer(bufferSize*2);
 			}
 			
-
-			var charsLeft = Math.Max(charsRead - rowStartPosition, 0);
-
-			Array.Copy(buffer, rowStartPosition, buffer, 0, charsLeft);
-
-			fieldStartPosition -= rowStartPosition;
-			rowStartPosition = 0;
-			bufferPosition = charsLeft;
-			charsRead = reader.Read(buffer, charsLeft, buffer.Length - charsLeft);
-			if (charsRead == 0)
-			{
-				return false;
-			}
-
-			charsRead += charsLeft;
-
-			return true;
+			var fieldEndIndex = CopyBuffer();
+			bufferPosition = fieldEndIndex;
+			return ReadIntoBuffer(fieldEndIndex);
 		}
 
 		private async Task<bool> FillBufferAsync()
@@ -856,29 +1014,57 @@ namespace CsvHelper
 			if (rowStartPosition == 0 && charCount > 0 && charsRead == bufferSize)
 			{
 				// The record is longer than the memory buffer. Increase the buffer.
-				bufferSize *= 2;
-				var tempBuffer = new char[bufferSize];
-				buffer.CopyTo(tempBuffer, 0);
-				buffer = tempBuffer;
+				ResizeBuffer(bufferSize*2);
 			}
 
+			var fieldEndIndex = CopyBuffer();
+			bufferPosition = fieldEndIndex;
+			return await ReadIntoBufferAsync(fieldEndIndex);
+		}
+
+		private void ResizeBuffer(int size)
+		{
+			bufferSize = size;
+			var tempBuffer = new char[bufferSize];
+			buffer.CopyTo(tempBuffer, 0);
+			buffer = tempBuffer;
+		}
+		
+		private bool ReadIntoBuffer(int index)
+		{
+			charsRead = reader.Read(buffer, index, buffer.Length - index);
+			if (charsRead == 0)
+			{
+				return false;
+			}
+
+			charsRead += index;
+
+			return true;
+		}
+		
+		private async Task<bool> ReadIntoBufferAsync(int index)
+		{
+			charsRead = await reader.ReadAsync(buffer, index, buffer.Length - index).ConfigureAwait(false);
+			if (charsRead == 0)
+			{
+				return false;
+			}
+
+			charsRead += index;
+
+			return true;
+		}
+
+		private int CopyBuffer()
+		{
 			var charsLeft = Math.Max(charsRead - rowStartPosition, 0);
 
 			Array.Copy(buffer, rowStartPosition, buffer, 0, charsLeft);
 
 			fieldStartPosition -= rowStartPosition;
 			rowStartPosition = 0;
-			bufferPosition = charsLeft;
-
-			charsRead = await reader.ReadAsync(buffer, charsLeft, buffer.Length - charsLeft).ConfigureAwait(false);
-			if (charsRead == 0)
-			{
-				return false;
-			}
-
-			charsRead += charsLeft;
-
-			return true;
+			return charsLeft;
 		}
 
 		private string GetField(int index)
@@ -992,7 +1178,7 @@ namespace CsvHelper
 
 			if (newLength > processFieldBuffer.Length)
 			{
-				// Make sure the field processing buffer is large engough.
+				// Make sure the field processing buffer is large enough.
 				while (newLength > processFieldBufferSize)
 				{
 					processFieldBufferSize *= 2;
@@ -1216,19 +1402,46 @@ namespace CsvHelper
 			disposed = true;
 		}
 
-		private ParserState PeekCheck(char c)
+		private ParserState PeekAndCheck(char c)
 		{
-			if (c != delimiterFirstChar && c != newLineFirstChar)
-			{
-				return ParserState.None;
-			}
-
 			var canBeNewLine = c == newLineFirstChar;
 			var canBeDelimiter = c == delimiterFirstChar;
 			
 			if (bufferPosition + peekLength > bufferSize)
 			{
 				FillBufferForPeek();
+			}
+			
+			for (int i = 1; i < peekLength; i++)
+			{
+				var nextChar = buffer[bufferPosition + i - 1];
+				if (newLine.Length > i && newLine[i] != nextChar)
+				{
+					canBeNewLine = false;
+				}
+
+				if (delimiter.Length > i && delimiter[i] != nextChar)
+				{
+					canBeDelimiter = false;
+				}
+
+				if (!canBeDelimiter && !canBeNewLine)
+				{
+					return ParserState.None;
+				}
+			}
+			
+			return canBeDelimiter ? ParserState.Delimiter : ParserState.NewLine;
+		}
+		
+		private async Task<ParserState> PeekAndCheckAsync(char c)
+		{
+			var canBeNewLine = c == newLineFirstChar;
+			var canBeDelimiter = c == delimiterFirstChar;
+			
+			if (bufferPosition + peekLength > bufferSize)
+			{
+				await FillBufferForPeekAsync();
 			}
 			
 			for (int i = 1; i < peekLength; i++)
