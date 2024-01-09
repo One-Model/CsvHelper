@@ -358,7 +358,7 @@ namespace CsvHelper
 				}
 
 				var isFirstCharOfRow = rowStartPosition == bufferPosition - 1;
-				if (isFirstCharOfRow && (allowComments && c == comment || ignoreBlankLines && ((c == '\r' || c == '\n') && !isNewLineSet || isNewLineSet & c == newLineFirstChar && PeekAndCheck(c) == ParserState.NewLine)))
+				if (isFirstCharOfRow && (allowComments && c == comment || ignoreBlankLines && ((c == '\r' || c == '\n') && !isNewLineSet || isNewLineSet && c == newLineFirstChar && PeekAndCheck(c) == ParserState.NewLine)))
 				{
 					state = ParserState.BlankLine;
 					var result = ReadBlankLine(ref c);
@@ -569,7 +569,7 @@ namespace CsvHelper
 				}
 
 				var isFirstCharOfRow = rowStartPosition == bufferPosition - 1;
-				if (isFirstCharOfRow && (allowComments && c == comment || ignoreBlankLines && ((c == '\r' || c == '\n') && !isNewLineSet || isNewLineSet & c == newLineFirstChar && await PeekAndCheckAsync(c) == ParserState.NewLine)))
+				if (isFirstCharOfRow && (allowComments && c == comment || ignoreBlankLines && ((c == '\r' || c == '\n') && !isNewLineSet || isNewLineSet && c == newLineFirstChar && await PeekAndCheckAsync(c) == ParserState.NewLine)))
 				{
 					state = ParserState.BlankLine;
 					var result = ReadBlankLine(ref c);
