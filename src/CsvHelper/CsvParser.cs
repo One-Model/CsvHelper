@@ -963,21 +963,27 @@ namespace CsvHelper
 		
 		private void FillBufferForPeek()
 		{
-			bool resizeBuffer = (rowStartPosition == 0 && charCount > 0) || bufferSize < peekLength;
-			if (resizeBuffer)
-			{
-				// Buffer should be at least long enough to fill entire peek
-				ResizeBuffer(Math.Max(bufferSize + peekLength, bufferSize * 2));
-			}
-
-			var fieldEndIndex = CopyBuffer();
-			// We want the buffer position to stay in the same place relative to where it was previously
-			// as we are just filling the buffer not progressing through it.
-			bufferPosition = resizeBuffer ? bufferPosition : Math.Max(0, bufferPosition + fieldEndIndex - charsRead);
+			var resizeBuffer = ResizeBufferForPeek();
+			var fieldEndIndex = RepositionBuffer(resizeBuffer);
 			ReadIntoBuffer(fieldEndIndex);
 		}
 		
 		private async Task FillBufferForPeekAsync()
+		{
+			var resizeBuffer = ResizeBufferForPeek();
+			var fieldEndIndex = RepositionBuffer(resizeBuffer);
+			await ReadIntoBufferAsync(fieldEndIndex);
+
+		}
+
+		private int RepositionBuffer(bool resizeBuffer)
+		{
+			var fieldEndIndex = CopyBuffer();
+			bufferPosition = resizeBuffer ? bufferPosition : Math.Max(0, bufferPosition + fieldEndIndex - charsRead);
+			return fieldEndIndex;
+		}
+
+		private bool ResizeBufferForPeek()
 		{
 			bool resizeBuffer = (rowStartPosition == 0 && charCount > 0) || bufferSize < peekLength;
 			if (resizeBuffer)
@@ -986,11 +992,7 @@ namespace CsvHelper
 				ResizeBuffer(Math.Max(bufferSize + peekLength, bufferSize * 2));
 			}
 
-			var fieldEndIndex = CopyBuffer();
-			
-			bufferPosition = resizeBuffer ? bufferPosition : Math.Max(0, bufferPosition + fieldEndIndex - charsRead);
-			await ReadIntoBufferAsync(fieldEndIndex);
-
+			return resizeBuffer;
 		}
 
 		private bool FillBuffer()
@@ -1402,46 +1404,29 @@ namespace CsvHelper
 
 		private ParserState PeekAndCheck(char c)
 		{
-			var canBeNewLine = c == newLineFirstChar;
-			var canBeDelimiter = c == delimiterFirstChar;
-			
 			if (bufferPosition + peekLength > bufferSize)
 			{
 				FillBufferForPeek();
 			}
 			
-			for (int i = 1; i < peekLength; i++)
-			{
-				var nextChar = buffer[bufferPosition + i - 1];
-				if (newLine.Length > i && newLine[i] != nextChar)
-				{
-					canBeNewLine = false;
-				}
-
-				if (delimiter.Length > i && delimiter[i] != nextChar)
-				{
-					canBeDelimiter = false;
-				}
-
-				if (!canBeDelimiter && !canBeNewLine)
-				{
-					return ParserState.None;
-				}
-			}
-			
-			return canBeDelimiter ? ParserState.Delimiter : ParserState.NewLine;
+			return PeekBuffer(c);
 		}
 		
 		private async Task<ParserState> PeekAndCheckAsync(char c)
 		{
-			var canBeNewLine = c == newLineFirstChar;
-			var canBeDelimiter = c == delimiterFirstChar;
-			
 			if (bufferPosition + peekLength > bufferSize)
 			{
 				await FillBufferForPeekAsync();
 			}
-			
+
+			return PeekBuffer(c);
+		}
+
+		private ParserState PeekBuffer(char c)
+		{
+			var canBeNewLine = c == newLineFirstChar;
+			var canBeDelimiter = c == delimiterFirstChar;
+
 			for (int i = 1; i < peekLength; i++)
 			{
 				var nextChar = buffer[bufferPosition + i - 1];
@@ -1460,7 +1445,7 @@ namespace CsvHelper
 					return ParserState.None;
 				}
 			}
-			
+
 			return canBeDelimiter ? ParserState.Delimiter : ParserState.NewLine;
 		}
 
