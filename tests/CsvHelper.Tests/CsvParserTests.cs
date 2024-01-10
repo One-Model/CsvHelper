@@ -1396,5 +1396,93 @@ namespace CsvHelper.Tests
 				Assert.Equal(1, parser.RawRow);
 			}
 		}
+		
+		[Fact]
+		public void LongNewLineCharacterWithNoLineEndingOnLastLineTest()
+		{
+			var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+			{
+				AllowComments = true,
+				NewLine = "|1234567|\r\n"
+			};
+			using (var stream = new MemoryStream())
+			using (var reader = new StreamReader(stream))
+			using (var writer = new StreamWriter(stream))
+			using (var parser = new CsvParser(reader, config))
+			{
+				writer.Write("1,2|1234567|\r\n");
+				writer.Write("3,4");
+				writer.Flush();
+				stream.Position = 0;
+
+				parser.Read();
+				Assert.Equal(2,parser.Count);
+				Assert.Equal("2",parser[1]);
+				parser.Read();
+				Assert.Equal(2,parser.Count);
+				Assert.Equal("4",parser[1]);
+				Assert.False(parser.Read());
+			}
+		}
+		
+		[Fact]
+		public void LongNewLineCharacterWithNoLineEndingOnLastLineTestWithSmallBuffer()
+		{
+			var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+			{
+				AllowComments = true,
+				NewLine = "|1234567|\r\n",
+				BufferSize = 17
+			};
+			using (var stream = new MemoryStream())
+			using (var reader = new StreamReader(stream))
+			using (var writer = new StreamWriter(stream))
+			using (var parser = new CsvParser(reader, config))
+			{
+				writer.Write("1,2|1234567|\r\n");
+				writer.Write("3,4");
+				writer.Flush();
+				stream.Position = 0;
+
+				parser.Read();
+				Assert.Equal(2,parser.Count);
+				Assert.Equal("2",parser[1]);
+				parser.Read();
+				Assert.Equal(2,parser.Count);
+				Assert.Equal("4",parser[1]);
+				Assert.False(parser.Read());
+			}
+		}
+		
+		
+		[Fact]
+		public void LongNewLineCharacterWithNoLineEndingOnLastLineTestWithSameBufferSizeAsLength()
+		{
+			var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+			{
+				AllowComments = true,
+				NewLine = "|1234567|\r\n",
+				BufferSize = 17
+			};
+			using (var stream = new MemoryStream())
+			using (var reader = new StreamReader(stream))
+			using (var writer = new StreamWriter(stream))
+			using (var parser = new CsvParser(reader, config))
+			{
+				writer.Write("1,2|1234567|\r\n");
+				writer.Write("3,4");
+				writer.Flush();
+				stream.Position = 0;
+
+				parser.Read();
+				Assert.Equal(2,parser.Count);
+				Assert.Equal("2",parser[1]);
+				parser.Read();
+				Assert.Equal(2,parser.Count);
+				Assert.Equal("4",parser[1]);
+				Assert.False(parser.Read());
+			}
+		}
+		
 	}
 }
