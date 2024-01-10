@@ -322,7 +322,7 @@ namespace CsvHelper
 
 					if (bufferPosition >= charsRead)
 					{
-						if (!FillBuffer())
+						if (!await FillBufferAsync())
 						{
 							return ReadEndOfFile();
 						}
@@ -355,7 +355,8 @@ namespace CsvHelper
 
 		private ReadLineResult ReadLine(ref char c, ref char cPrev)
 		{
-			while ((!shouldPeek && bufferPosition < charsRead) || (shouldPeek && bufferPosition + peekLength < charsRead) || (!keepReading && bufferPosition != bufferPositionToReadTo))
+			while ((!shouldPeek && bufferPosition < charsRead)
+			       || (shouldPeek && (bufferPosition + peekLength < charsRead || (!keepReading && bufferPosition != bufferPositionToReadTo))))
 			{
 				if (state != ParserState.None)
 				{
@@ -525,8 +526,6 @@ namespace CsvHelper
 							return HandleNewLine(ref c);
 						case ParserState.None:
 							continue;
-						default:
-							throw new ArgumentOutOfRangeException();
 					}
 				}
 
@@ -814,7 +813,7 @@ namespace CsvHelper
 		private void FillBufferForPeek()
 		{
 			var resizeBuffer = ResizeBufferForPeek();
-			var fieldEndIndex = RepositionBuffer(resizeBuffer);
+			var fieldEndIndex = RepositionBufferForPeek(resizeBuffer);
 			charsRead = reader.Read(buffer, fieldEndIndex, buffer.Length - fieldEndIndex);
 			charsRead += fieldEndIndex;
 			if (charsRead != bufferSize)
@@ -827,7 +826,7 @@ namespace CsvHelper
 		private async Task FillBufferForPeekAsync()
 		{
 			var resizeBuffer = ResizeBufferForPeek();
-			var fieldEndIndex = RepositionBuffer(resizeBuffer);
+			var fieldEndIndex = RepositionBufferForPeek(resizeBuffer);
 			charsRead = await reader.ReadAsync(buffer, fieldEndIndex, buffer.Length - fieldEndIndex);
 			charsRead += fieldEndIndex;
 			if (charsRead != bufferSize)
@@ -837,7 +836,7 @@ namespace CsvHelper
 			}
 		}
 
-		private int RepositionBuffer(bool resizeBuffer)
+		private int RepositionBufferForPeek(bool resizeBuffer)
 		{
 			var fieldEndIndex = CopyBuffer();
 			bufferPosition = resizeBuffer ? bufferPosition : Math.Max(0, bufferPosition + fieldEndIndex - charsRead);
